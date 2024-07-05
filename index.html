@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Virtual Guardian Cybersecurity Toolkit</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { color: #333; }
+        select, input, textarea { width: 100%; padding: 8px; margin-bottom: 10px; }
+        button { background-color: #4CAF50; color: white; padding: 10px 20px; border: none; cursor: pointer; }
+        button:hover { background-color: #45a049; }
+        #result { margin-top: 20px; padding: 10px; background-color: #f0f0f0; border: 1px solid #ccc; white-space: pre-wrap; font-family: monospace; }
+        #copy-button { display: none; margin-top: 10px; }
+        .tool-fields { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="/api/placeholder/300/100" alt="Virtual Guardian Logo" style="max-width: 300px; margin-bottom: 20px;">
+        <h1>Cybersecurity Toolkit</h1>
+        <form id="tool-form">
+            <select name="tool" id="tool-select">
+                <option value="ip">IP Analysis</option>
+                <option value="fmc">FMC</option>
+                <option value="fmcdhcp">FMCDHCP</option>
+                <option value="extract">Extract</option>
+                <option value="defender">Defender</option>
+            </select>
+
+            <div id="ip-fields" class="tool-fields">
+                <textarea name="ip_addresses" rows="5" placeholder="Enter IP addresses (one per line)"></textarea>
+            </div>
+
+            <div id="fmc-fields" class="tool-fields">
+                <textarea name="ip_addresses" rows="5" placeholder="Enter IP addresses (one per line)"></textarea>
+                <input type="text" name="date" placeholder="Date">
+                <input type="text" name="location" placeholder="Location">
+                <input type="text" name="offense_number" placeholder="Offense Number">
+                <input type="text" name="blocked_ips_count" placeholder="Blocked IPs Count">
+                <textarea name="dhcp_message" rows="3" placeholder="Enter DHCP Message"></textarea>
+                <input type="text" name="username" placeholder="Username">
+                <input type="text" name="full_name" placeholder="Full Name">
+                <input type="text" name="role" placeholder="Role">
+            </div>
+
+            <div id="fmcdhcp-fields" class="tool-fields">
+                <textarea name="ip_addresses" rows="5" placeholder="Enter IP addresses (one per line)"></textarea>
+                <textarea name="dhcp_offer" rows="3" placeholder="Enter DHCP Offer"></textarea>
+                <input type="text" name="date" placeholder="Date">
+                <input type="text" name="offense_number" placeholder="Offense Number">
+            </div>
+
+            <div id="extract-fields" class="tool-fields">
+                <textarea name="payload" rows="10" placeholder="Enter JSON payload"></textarea>
+            </div>
+
+            <div id="defender-fields" class="tool-fields">
+                <textarea name="payload" rows="10" placeholder="Enter JSON payload"></textarea>
+            </div>
+
+            <button type="submit">Run Tool</button>
+        </form>
+        <div id="result"></div>
+        <button id="copy-button" style="display: none;">Copy to Clipboard</button>
+    </div>
+
+    <script>
+        document.getElementById('tool-select').addEventListener('change', function() {
+            document.querySelectorAll('.tool-fields').forEach(el => el.style.display = 'none');
+            document.getElementById(this.value + '-fields').style.display = 'block';
+        });
+
+        document.getElementById('tool-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = 'Processing...';
+            
+            processForm(formData).then(results => {
+                resultDiv.textContent = results;
+                document.getElementById('copy-button').style.display = 'block';
+            }).catch(error => {
+                resultDiv.textContent = 'Error: ' + error.message;
+            });
+        });
+
+        document.getElementById('copy-button').addEventListener('click', function() {
+            const resultText = document.getElementById('result').textContent;
+            navigator.clipboard.writeText(resultText).then(() => {
+                alert('Results copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+            });
+        });
+
+        // Show the fields for the initially selected tool
+        document.getElementById('tool-select').dispatchEvent(new Event('change'));
+
+        // Fonction pour obtenir les informations de localisation via ip-api.com
+        async function getIpInfo(ipAddress) {
+            const url = `http://ip-api.com/json/${ipAddress}`;
+            const response = await fetch(url);
+            if (response.ok) {
+                const data = await response.json();
+                const country = data.country || 'N/A';
+                return country;
+            } else {
+                console.error(`Erreur lors de la récupération des données pour ${ipAddress}. Code d'état: ${response.status}`);
+                return null;
+            }
+        }
+
+        // Fonction pour analyser le score de fraude via scamalytics.com
+        async function analyzeIp(ipAddress) {
+            const url = `https://scamalytics.com/ip/${ipAddress}`;
+            const response = await fetch(url);
+            const text = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, 'text/html');
+            const scoreElement = doc.querySelector('.score');
+            const score = scoreElement ? scoreElement.textContent.replace('Fraud Score:', '').trim() : 'Not Found';
+            return score;
+        }
+
+        // Fonction pour vérifier si l'IP est un VPN via proxycheck.io
+        async function checkVpn(ipAddress) {
+            const url = `https://proxycheck.io/v2/${ipAddress}`;
+            const response = await fetch(url);
+            if (response.ok) {
+                const data = await response.json();
+                if (data[ipAddress] && 'proxy' in data[ipAddress]) {
+                    return data[ipAddress].proxy === 'yes';
+                } else {
+                    console.error(`Erreur: Les données pour ${ipAddress} ne contiennent pas les informations attendues.`);
+                    return false;
+                }
+            } else {
+                console.error(`Erreur lors de la vérification VPN pour ${ipAddress}. Code d'état: ${response.status}`);
+                return false;
+            }
+        }
+
+        // Fonction pour extraire les informations de l'offre DHCP
+        function parseDhcpMessage(dhcpMessage) {
+            const offerMatch = dhcpMessage.match(/DHCPOFFER on ([\d.]+) to ([\w:]+) \(([\w-]+)\)/);
+            const requestMatch = dhcpMessage.match(/DHCPREQUEST for ([\d.]+) from ([\w:]+) \(([\w-]+)\)/);
+            
+            if (offerMatch) {
+                return {
+                    ipAddress: offerMatch[1],
+                    macAddress: offerMatch[2],
+                    hostname: offerMatch[3],
+                    action: "DHCPOFFER"
+                };
+            } else if (requestMatch) {
+                return {
+                    ipAddress: requestMatch[1],
+                    macAddress: requestMatch[2],
+                    hostname: requestMatch[3],
+                    action: "DHCPREQUEST"
+                };
+            } else {
+                return null;
+            }
+        }
+
+        // Fonction principale pour traiter le formulaire
+        async function processForm(data) {
+            const ipAddresses = data.get('ip_addresses').split('\n').map(ip => ip.trim()).filter(ip => ip);
+            const dhcpMessage = data.get('dhcp_message') || '';
+            const dhcpInfo = parseDhcpMessage(dhcpMessage);
+
+            const results = await Promise.all(ipAddresses.map(async (ip) => {
+                const country = await getIpInfo(ip);
+                const fraudScore = await analyzeIp(ip);
+                const vpn = await checkVpn(ip);
+                const vpnStatus = vpn ? 'VPN' : 'Non VPN';
+                return `${ip}\tFraud Score ${fraudScore}\t${country}\t${vpnStatus}`;
+            }));
+
+            return results.join('\n');
+        }
+    </script>
+</body>
+</html>
